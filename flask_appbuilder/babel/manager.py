@@ -5,7 +5,7 @@ from flask_babel import Babel
 
 from .views import LocaleView
 from ..basemanager import BaseManager
-
+from os.path import join, dirname
 
 class BabelManager(BaseManager):
 
@@ -32,7 +32,10 @@ class BabelManager(BaseManager):
                 appbuilder_translations_path + ";" + current_translation_directories
             )
         else:
-            translations_path = appbuilder_translations_path + ";translations"
+            translations_path = appbuilder_translations_path + ";translations;"
+        abs_addons = ';'.join([join(dirname(__import__(addon.split('.', 1)[0]).__file__), 'translations')
+            for addon in app.config.get('ADDON_MANAGERS')])
+        translations_path += abs_addons
         app.config["BABEL_TRANSLATION_DIRECTORIES"] = translations_path
         self.babel = Babel(app)
         self.babel.locale_selector_func = self.get_locale

@@ -19,6 +19,8 @@ from .const import (
 from .filters import TemplateFilters
 from .menu import Menu, MenuApiManager
 from .views import IndexView, UtilView
+from configparser import ConfigParser
+from os.path import join, dirname, exists
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +149,19 @@ class AppBuilder(object):
         if app is not None:
             self.init_app(app, session)
 
+    def check_dependencies(self, app):
+        addons = [addon.split('.', 1)[0] for addon in app.config.get('ADDON_MANAGERS')]
+        for addon in addons:
+            path_cfg = join(dirname(__import__(addon.split('.', 1)[0]).__file__), 'appbuilder.cfg')
+            if not exists(path_cfg):
+                continue
+            config = ConfigParser(allow_no_value=True)
+            config.read(path_cfg)
+            if 'dependencies' in config.sections():
+               for dependencie in config['dependencies']:
+                   if dependencie not in addons:
+                       raise(Exception('Module "%s" is missing' % dependencie))
+
     def init_app(self, app, session):
         """
             Will initialize the Flask app, supporting the app factory pattern.
@@ -197,6 +212,7 @@ class AppBuilder(object):
 
             self.security_manager_class = SecurityManager
 
+        self.check_dependencies(app)
         self._addon_managers = app.config["ADDON_MANAGERS"]
         self.session = session
         self.sm = self.security_manager_class(self)
