@@ -1,23 +1,33 @@
 import datetime
 import logging
 import re
+from typing import Any, List, Optional
+from urllib.parse import urlparse
 
 from flask import abort, current_app, flash, g, redirect, request, session, url_for
 from flask_babel import lazy_gettext
 from flask_login import login_user, logout_user
 import jwt
 from werkzeug.security import generate_password_hash
+from werkzeug.wrappers import Response as WerkzeugResponse
 from wtforms import PasswordField, validators
 from wtforms.validators import EqualTo
 
 from .decorators import has_access
-from .forms import LoginForm_db, LoginForm_oid, ResetPasswordForm, UserInfoEdit
+from .forms import (
+    DynamicForm,
+    LoginForm_db,
+    LoginForm_oid,
+    ResetPasswordForm,
+    UserInfoEdit,
+)
 from .._compat import as_unicode
 from ..actions import action
 from ..baseviews import BaseView
 from ..charts.views import DirectByChartView
 from ..fieldwidgets import BS3PasswordFieldWidget
 from ..utils.base import lazy_formatter_gettext
+from ..validators import PasswordComplexityValidator
 from ..views import expose, ModelView, SimpleFormView
 from ..widgets import ListWidget, ShowWidget
 
@@ -76,7 +86,7 @@ class ResetMyPasswordView(SimpleFormView):
     redirect_url = "/"
     message = lazy_gettext("Password Changed")
 
-    def form_post(self, form):
+    def form_post(self, form: DynamicForm) -> None:
         self.appbuilder.sm.reset_password(g.user.id, form.password.data)
         flash(as_unicode(self.message), "info")
 
@@ -92,7 +102,7 @@ class ResetPasswordView(SimpleFormView):
     redirect_url = "/"
     message = lazy_gettext("Password Changed")
 
-    def form_post(self, form):
+    def form_post(self, form: DynamicForm) -> None:
         pk = request.args.get("pk")
         self.appbuilder.sm.reset_password(pk, form.password.data)
         flash(as_unicode(self.message), "info")
@@ -104,7 +114,7 @@ class UserInfoEditView(SimpleFormView):
     redirect_url = "/"
     message = lazy_gettext("User information changed")
 
-    def form_get(self, form):
+    def form_get(self, form: DynamicForm) -> None:
         item = self.appbuilder.sm.get_user_by_id(g.user.id)
         # fills the form generic solution
         for key, value in form.data.items():
@@ -113,7 +123,7 @@ class UserInfoEditView(SimpleFormView):
             form_field = getattr(form, key)
             form_field.data = getattr(item, key)
 
-    def form_post(self, form):
+    def form_post(self, form: DynamicForm) -> None:
         form = self.form.refresh(request.form)
         item = self.appbuilder.sm.get_user_by_id(g.user.id)
         form.populate_obj(item)
@@ -164,10 +174,7 @@ class UserModelView(ModelView):
         "username": lazy_gettext(
             "Username valid for authentication on DB or LDAP, unused for OID auth"
         ),
-        "password": lazy_gettext(
-            "Please use a good password policy,"
-            " this application does not check this for you"
-        ),
+        "password": lazy_gettext("The user's password for authentication"),
         "active": lazy_gettext(
             "It's not a good policy to remove a user, just make it inactive"
         ),
@@ -226,7 +233,7 @@ class UserModelView(ModelView):
 
     @expose("/userinfo/")
     @has_access
-    def userinfo(self):
+    def userinfo(self) -> WerkzeugResponse:
         item = self.datamodel.get(g.user.id, self._base_filters)
         widgets = self._get_show_widget(
             g.user.id, item, show_fieldsets=self.user_show_fieldsets
@@ -240,7 +247,7 @@ class UserModelView(ModelView):
         )
 
     @action("userinfoedit", lazy_gettext("Edit User"), "", "fa-edit", multiple=False)
-    def userinfoedit(self, item):
+    def userinfoedit(self, item: Any) -> WerkzeugResponse:
         return redirect(
             url_for(self.appbuilder.sm.userinfoeditview.__name__ + ".this_form_get")
         )
@@ -296,11 +303,8 @@ class UserDBModelView(UserModelView):
     add_form_extra_fields = {
         "password": PasswordField(
             lazy_gettext("Password"),
-            description=lazy_gettext(
-                "Please use a good password policy,"
-                " this application does not check this for you"
-            ),
-            validators=[validators.DataRequired()],
+            description=lazy_gettext("The user's password for authentication"),
+            validators=[validators.DataRequired(), PasswordComplexityValidator()],
             widget=BS3PasswordFieldWidget(),
         ),
         "conf_password": PasswordField(
@@ -326,7 +330,7 @@ class UserDBModelView(UserModelView):
 
     @expose("/show/<pk>", methods=["GET"])
     @has_access
-    def show(self, pk):
+    def show(self, pk: Any) -> WerkzeugResponse:
         actions = dict()
         actions["resetpasswords"] = self.actions.get("resetpasswords")
         item = self.datamodel.get(pk, self._base_filters)
@@ -345,7 +349,7 @@ class UserDBModelView(UserModelView):
 
     @expose("/userinfo/")
     @has_access
-    def userinfo(self):
+    def userinfo(self) -> WerkzeugResponse:
         actions = dict()
         actions["resetmypassword"] = self.actions.get("resetmypassword")
         actions["userinfoedit"] = self.actions.get("userinfoedit")
@@ -369,7 +373,7 @@ class UserDBModelView(UserModelView):
         "fa-lock",
         multiple=False,
     )
-    def resetmypassword(self, item):
+    def resetmypassword(self, item: Any):
         return redirect(
             url_for(self.appbuilder.sm.resetmypasswordview.__name__ + ".this_form_get")
         )
@@ -377,7 +381,7 @@ class UserDBModelView(UserModelView):
     @action(
         "resetpasswords", lazy_gettext("Reset Password"), "", "fa-lock", multiple=False
     )
-    def resetpasswords(self, item):
+    def resetpasswords(self, item: Any) -> WerkzeugResponse:
         return redirect(
             url_for(
                 self.appbuilder.sm.resetpasswordview.__name__ + ".this_form_get",
@@ -385,11 +389,11 @@ class UserDBModelView(UserModelView):
             )
         )
 
-    def pre_update(self, item):
+    def pre_update(self, item: Any) -> None:
         item.changed_on = datetime.datetime.now()
         item.changed_by_fk = g.user.id
 
-    def pre_add(self, item):
+    def pre_add(self, item: Any) -> None:
         item.password = generate_password_hash(item.password)
 
 
@@ -537,64 +541,14 @@ class AuthLDAPView(AuthView):
             self.login_template, title=self.title, form=form, appbuilder=self.appbuilder
         )
 
-    """
-        For Future Use, API Auth, must check howto keep REST stateless
-    """
-
-    """
-    @expose_api(name='auth',url='/api/auth')
-    def auth(self):
-        if g.user is not None and g.user.is_authenticated:
-            http_return_code = 401
-            response = make_response(
-                jsonify(
-                    {
-                        'message': 'Login Failed already authenticated',
-                        'severity': 'critical'
-                    }
-                ),
-                http_return_code
-            )
-        username = str(request.args.get('username'))
-        password = str(request.args.get('password'))
-        user = self.appbuilder.sm.auth_user_ldap(username, password)
-        if not user:
-            http_return_code = 401
-            response = make_response(
-                jsonify(
-                    {
-                        'message': 'Login Failed',
-                        'severity': 'critical'
-                    }
-                ),
-                http_return_code
-            )
-        else:
-            login_user(user, remember=False)
-            http_return_code = 201
-            response = make_response(
-                jsonify(
-                    {
-                        'message': 'Login Success',
-                         'severity': 'info'
-                    }
-                ),
-                http_return_code
-            )
-        return response
-    """
-
 
 class AuthOIDView(AuthView):
     login_template = "appbuilder/general/security/login_oid.html"
     oid_ask_for = ["email"]
-    oid_ask_for_optional = []
-
-    def __init__(self):
-        super(AuthOIDView, self).__init__()
+    oid_ask_for_optional: List[str] = []
 
     @expose("/login/", methods=["GET", "POST"])
-    def login(self, flag=True):
+    def login(self, flag=True) -> WerkzeugResponse:
         @self.appbuilder.sm.oid.loginhandler
         def login_handler(self):
             if g.user is not None and g.user.is_authenticated:
@@ -641,7 +595,9 @@ class AuthOAuthView(AuthView):
     @expose("/login/")
     @expose("/login/<provider>")
     @expose("/login/<provider>/<register>")
-    def login(self, provider=None, register=None):
+    def login(
+        self, provider: Optional[str] = None, register: Optional[str] = None
+    ) -> WerkzeugResponse:
         log.debug("Provider: {0}".format(provider))
         if g.user is not None and g.user.is_authenticated:
             log.debug("Already authenticated {0}".format(g.user))
@@ -690,8 +646,12 @@ class AuthOAuthView(AuthView):
             return redirect(self.appbuilder.get_url_for_index)
 
     @expose("/oauth-authorized/<provider>")
-    def oauth_authorized(self, provider):
+    def oauth_authorized(self, provider: str) -> WerkzeugResponse:
         log.debug("Authorized init")
+        if provider not in self.appbuilder.sm.oauth_remotes:
+            flash(u"Provider not supported.", "warning")
+            log.warning("OAuth authorized got an unknown provider %s", provider)
+            return redirect(self.appbuilder.get_url_for_login)
         resp = self.appbuilder.sm.oauth_remotes[provider].authorize_access_token()
         if resp is None:
             flash(u"You denied the request to sign in.", "warning")
@@ -710,8 +670,8 @@ class AuthOAuthView(AuthView):
             if provider in self.appbuilder.sm.oauth_whitelists:
                 whitelist = self.appbuilder.sm.oauth_whitelists[provider]
                 allow = False
-                for e in whitelist:
-                    if re.search(e, userinfo["email"]):
+                for email in whitelist:
+                    if "email" in userinfo and re.search(email, userinfo["email"]):
                         allow = True
                         break
                 if not allow:
@@ -735,11 +695,14 @@ class AuthOAuthView(AuthView):
             except jwt.InvalidTokenError:
                 raise Exception("State signature is not valid!")
 
-            try:
-                next_url = state["next"][0] or self.appbuilder.get_url_for_index
-            except (KeyError, IndexError):
-                next_url = self.appbuilder.get_url_for_index
-
+            next_url = self.appbuilder.get_url_for_index
+            # Check if there is a next url on state
+            if "next" in state and len(state["next"]) > 0:
+                parsed_uri = urlparse(state["next"][0])
+                if parsed_uri.netloc != request.host:
+                    log.warning("Got an invalid next URL: %s", parsed_uri.netloc)
+                else:
+                    next_url = state["next"][0]
             return redirect(next_url)
 
 
@@ -747,7 +710,7 @@ class AuthRemoteUserView(AuthView):
     login_template = ""
 
     @expose("/login/")
-    def login(self):
+    def login(self) -> WerkzeugResponse:
         username = request.environ.get("REMOTE_USER")
         if g.user is not None and g.user.is_authenticated:
             return redirect(self.appbuilder.get_url_for_index)
