@@ -145,6 +145,8 @@ class AppBuilder(object):
         self.static_url_path = static_url_path
         self.app = app
         self.update_perms = update_perms
+        self.app_custom_js = None
+        self.app_custom_css = None
 
         if app is not None:
             self.init_app(app, session)
@@ -187,6 +189,8 @@ class AppBuilder(object):
         self.static_url_path = app.config.get(
             "FAB_STATIC_URL_PATH", self.static_url_path
         )
+        self.app_custom_js = app.config.get("FAB_APP_CUSTOM_JS", self.app_custom_js)
+        self.app_custom_css = app.config.get("FAB_APP_CUSTOM_CSS", self.app_custom_css)
         _index_view = app.config.get("FAB_INDEX_VIEW", None)
         if _index_view is not None:
             self.indexview = dynamic_class_import(_index_view)
